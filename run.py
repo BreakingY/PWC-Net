@@ -1,7 +1,6 @@
-#!/usr/bin/env python
-
 # Copyright (C) 2026 sunkx
 # Licensed under the GNU General Public License v3.0
+#!/usr/bin/env python
 
 import getopt
 import math
