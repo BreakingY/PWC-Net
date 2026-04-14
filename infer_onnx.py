@@ -5,9 +5,6 @@ import numpy as np
 import onnxruntime as ort
 
 
-# =========================================================
-# 1. ONNX Session
-# =========================================================
 def create_session(onnx_path):
     return ort.InferenceSession(
         onnx_path,
@@ -15,9 +12,6 @@ def create_session(onnx_path):
     )
 
 
-# =========================================================
-# 2. Preprocess
-# =========================================================
 def preprocess(img, target_h=448, target_w=1024):
     """
     BGR -> CHW -> float32
@@ -31,9 +25,6 @@ def preprocess(img, target_h=448, target_w=1024):
     return img
 
 
-# =========================================================
-# 3. Postprocess (resize + scale flow)
-# =========================================================
 def postprocess_flow(flow, orig_h, orig_w, net_h=448, net_w=1024):
     """
     flow: [1,2,H,W]
@@ -54,9 +45,6 @@ def postprocess_flow(flow, orig_h, orig_w, net_h=448, net_w=1024):
     return flow_resized
 
 
-# =========================================================
-# 4. Batch = 1 inference
-# =========================================================
 def infer_batch1(session, img1, img2):
     """
     return: HWC flow
@@ -83,9 +71,6 @@ def infer_batch1(session, img1, img2):
     return np.transpose(flow, (1, 2, 0))  # HWC
 
 
-# =========================================================
-# 5. Batch = 2 inference
-# =========================================================
 def infer_batch2(session, img1, img2):
     """
     batch=2 inference (PWC-style correct pairing)
@@ -99,15 +84,12 @@ def infer_batch2(session, img1, img2):
 
     h, w = img1.shape[:2]
 
-    # preprocess
     img1 = preprocess(img1)
     img2 = preprocess(img2)
 
-    # key: duplicate pair structure
     batch_one = np.stack([img1, img1], axis=0)  # [2,3,448,1024]
     batch_two = np.stack([img2, img2], axis=0)  # [2,3,448,1024]
 
-    # inference
     flows = session.run(
         None,
         {
@@ -127,9 +109,6 @@ def infer_batch2(session, img1, img2):
     return results
 
 
-# =========================================================
-# 6. Demo
-# =========================================================
 def flow_to_hsv(flow):
     """
     flow: HWC or CHW (float32)
@@ -150,13 +129,10 @@ def flow_to_hsv(flow):
 
     hsv = np.zeros((h, w, 3), dtype=np.uint8)
 
-    # Hue: 方向
     hsv[..., 0] = ang * 180 / np.pi / 2
 
-    # Saturation: 固定最大
     hsv[..., 1] = 255
 
-    # Value: 光流大小归一化
     hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
 
     rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
@@ -170,19 +146,15 @@ if __name__ == "__main__":
     img1 = cv2.imread("./images/one.png")
     img2 = cv2.imread("./images/two.png")
 
-    # -------------------------
-    # batch = 1
-    # -------------------------
+
     flow1 = infer_batch1(session, img1, img2)
     print("Batch1 flow shape:", flow1.shape)
 
-    # -------------------------
-    # batch = 2
-    # -------------------------
+
     flows = infer_batch2(session, img1, img2)
     print("Batch2 flow shapes:", [f.shape for f in flows])
 
-    # 可视化（简单 magnitude）
+    # 可视化
     # mag = np.sqrt(flows[0][..., 0]**2 + flows[0][..., 1]**2)
     # cv2.imwrite("flow_mag.png", (mag / mag.max() * 255).astype(np.uint8))
     vis = flow_to_hsv(flows[1])

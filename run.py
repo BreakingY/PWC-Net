@@ -120,9 +120,6 @@ def backwarp(tenInput, tenFlow):
     device = tenInput.device
     dtype = tenInput.dtype
 
-    # ==============================
-    # 关键修复：对齐 flow 到 input 尺寸
-    # ==============================
     if Hf != H or Wf != W:
         tenFlow = F.interpolate(
             tenFlow,
@@ -134,9 +131,6 @@ def backwarp(tenInput, tenFlow):
         tenFlow[:, 0] *= W / Wf
         tenFlow[:, 1] *= H / Hf
 
-    # ==============================
-    # 原始 PWC grid 逻辑（去掉 cache）
-    # ==============================
     hor = torch.linspace(-1.0, 1.0, W, device=device, dtype=dtype)\
         .view(1, 1, 1, W).expand(B, -1, H, -1)
 
@@ -145,23 +139,15 @@ def backwarp(tenInput, tenFlow):
 
     grid = torch.cat([hor, ver], 1)
 
-    # ==============================
-    # flow normalize（完全按原版）
-    # ==============================
     flow = torch.cat([
         tenFlow[:, 0:1] * (2.0 / (W - 1.0)),
         tenFlow[:, 1:2] * (2.0 / (H - 1.0))
     ], 1)
 
-    # ==============================
-    # 拼 mask（原版逻辑）
-    # ==============================
+
     mask = torch.ones((B, 1, H, W), device=device, dtype=dtype)
     tenInput = torch.cat([tenInput, mask], 1)
 
-    # ==============================
-    # grid_sample
-    # ==============================
     output = F.grid_sample(
         tenInput,
         (grid + flow).permute(0, 2, 3, 1),
@@ -170,9 +156,6 @@ def backwarp(tenInput, tenFlow):
         align_corners=True
     )
 
-    # ==============================
-    # mask处理（原版）
-    # ==============================
     tenMask = output[:, -1:, :, :]
     tenMask = (tenMask > 0.999).to(dtype)
 
@@ -473,7 +456,6 @@ def export_onnx(
     Export PWC-style model to ONNX with dynamic batch support
     """
 
-    # 1. build model
     model = Network()
     state_dict = torch.load(weight_path, map_location='cpu')
     model.load_state_dict({
@@ -483,22 +465,19 @@ def export_onnx(
     model.eval()
     model.cpu()
 
-    # 2. wrap model (important for clean output)
     wrapper = OnnxWrapper(model)
     wrapper.eval()
 
-    # 3. dummy input (B=1, dynamic batch later)
+
     dummy_one = torch.randn(1, 3, 448, 1024, dtype=torch.float32)
     dummy_two = torch.randn(1, 3, 448, 1024, dtype=torch.float32)
 
-    # 4. dynamic axes (ONLY batch dynamic, safest)
     dynamic_axes = {
         'input1': {0: 'batch'},
         'input2': {0: 'batch'},
         'output': {0: 'batch'}
     }
 
-    # 5. export
     torch.onnx.export(
         wrapper,
         (dummy_one, dummy_two),
