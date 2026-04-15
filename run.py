@@ -353,7 +353,13 @@ class Network(torch.nn.Module):
         objEstimate = self.netThr(tenOne[-4], tenTwo[-4], objEstimate)
         objEstimate = self.netTwo(tenOne[-5], tenTwo[-5], objEstimate)
 
-        return (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
+        # return (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
+        '''
+        修复: tensorrt尺寸错误,但是要求模型输入必须是448x1024
+        '''
+        flow = (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
+        flow = torch.nn.functional.interpolate(flow, size=(448, 1024), mode='bilinear', align_corners=False)
+        return flow
     # end
 # end
 
