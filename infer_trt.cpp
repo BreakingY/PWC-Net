@@ -1,3 +1,7 @@
+/**
+ * Copyright (C) 2026 sunkx
+ * Licensed under the GNU General Public License v3.0
+ */
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -219,7 +223,7 @@ int PictureInfer(cudaStream_t &stream, std::vector<std::pair<int, std::string>> 
         PreprocessImage_GPU(img_two, input_ptr_two + buffer_idx, input_h, input_w, stream);
         buffer_idx += input_h * input_w * 3 * sizeof(float);
     }
-    
+
     auto start = std::chrono::high_resolution_clock::now();
     Inference(context, buffers, (void*)output, input_h * input_w * 2, test_batch, 3, input_h, input_w, in_tensor_info, out_tensor_info, stream);
     auto end = std::chrono::high_resolution_clock::now();
