@@ -162,23 +162,43 @@ cv::Mat FlowToHSV(const cv::Mat& flow)
 {
     cv::Mat flow_split[2];
     cv::split(flow, flow_split);
-
     cv::Mat fx = flow_split[0];
     cv::Mat fy = flow_split[1];
-
     cv::Mat mag, ang;
-    cv::cartToPolar(fx, fy, mag, ang, true); // angle in degrees
-
+    cv::cartToPolar(fx, fy, mag, ang, true);
     cv::Mat hsv[3];
+    cv::Mat hue = cv::Mat::zeros(ang.size(), CV_32F);
+    for (int y = 0; y < ang.rows; y++){
+        const float* ang_ptr = ang.ptr<float>(y);
+        float* hue_ptr = hue.ptr<float>(y);
 
-    // H
-    hsv[0] = ang * 0.5;
+        for (int x = 0; x < ang.cols; x++){
+            float a = ang_ptr[x];
 
-    // S
-    hsv[1] = cv::Mat::ones(ang.size(), CV_32F) * 255;
+            float rad = a * CV_PI / 180.0f;
 
-    // V
-    cv::normalize(mag, hsv[2], 0, 255, cv::NORM_MINMAX);
+            float h = 0.0f;
+
+            if (rad < CV_PI / 2){
+                h = (rad / (CV_PI / 2)) * 30.0f;
+            }
+            else if (rad < CV_PI){
+                h = 30.0f + ((rad - CV_PI / 2) / (CV_PI / 2)) * 90.0f;
+            }
+            else{
+                h = 120.0f + ((rad - CV_PI) / CV_PI) * 60.0f;
+            }
+
+            hue_ptr[x] = h;
+        }
+    }
+    hsv[0] = hue;
+
+    cv::Mat mag_norm;
+    cv::normalize(mag, mag_norm, 0, 255, cv::NORM_MINMAX);
+    hsv[1] = mag_norm;
+
+    hsv[2] = cv::Mat::ones(mag.size(), CV_32F) * 255;
 
     cv::Mat hsv_merge;
     cv::merge(hsv, 3, hsv_merge);

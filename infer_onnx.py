@@ -110,12 +110,7 @@ def infer_batch2(session, img1, img2):
 
 
 def flow_to_hsv(flow):
-    """
-    flow: HWC or CHW (float32)
-    return: BGR image (uint8)
-    """
 
-    # 如果是 HWC → 转 CHW
     if flow.shape[-1] == 2:
         fx = flow[..., 0]
         fy = flow[..., 1]
@@ -129,11 +124,25 @@ def flow_to_hsv(flow):
 
     hsv = np.zeros((h, w, 3), dtype=np.uint8)
 
-    hsv[..., 0] = ang * 180 / np.pi / 2
+    hue = np.zeros_like(ang, dtype=np.float32)
 
-    hsv[..., 1] = 255
+    ang = np.mod(ang, 2 * np.pi)
 
-    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    mask1 = (ang < np.pi / 2)
+    hue[mask1] = (ang[mask1] / (np.pi / 2)) * 30
+
+    mask2 = (ang >= np.pi / 2) & (ang < np.pi)
+    hue[mask2] = 30 + ((ang[mask2] - np.pi / 2) / (np.pi / 2)) * 90
+
+    mask3 = (ang >= np.pi)
+    hue[mask3] = 120 + ((ang[mask3] - np.pi) / np.pi) * 60
+
+    hsv[..., 0] = np.clip(hue, 0, 179).astype(np.uint8)
+
+    mag_norm = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    hsv[..., 1] = mag_norm.astype(np.uint8)
+
+    hsv[..., 2] = 255
 
     rgb = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
@@ -154,8 +163,5 @@ if __name__ == "__main__":
     flows = infer_batch2(session, img1, img2)
     print("Batch2 flow shapes:", [f.shape for f in flows])
 
-    # 可视化
-    # mag = np.sqrt(flows[0][..., 0]**2 + flows[0][..., 1]**2)
-    # cv2.imwrite("flow_mag.png", (mag / mag.max() * 255).astype(np.uint8))
     vis = flow_to_hsv(flows[1])
     cv2.imwrite("flow_onnx.jpg", vis)
