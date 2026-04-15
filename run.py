@@ -344,6 +344,7 @@ class Network(torch.nn.Module):
     # end
 
     def forward(self, tenOne, tenTwo):
+        intHeight, intWidth = tenOne.shape[2], tenOne.shape[3]
         tenOne = self.netExtractor(tenOne)
         tenTwo = self.netExtractor(tenTwo)
 
@@ -355,10 +356,10 @@ class Network(torch.nn.Module):
 
         # return (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
         '''
-        修复: tensorrt尺寸错误,但是要求模型输入必须是448x1024
+        修复: 固定flow尺寸
         '''
         flow = (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
-        flow = torch.nn.functional.interpolate(flow, size=(448, 1024), mode='bilinear', align_corners=False)
+        flow = torch.nn.functional.interpolate(flow, size=(intHeight, intWidth), mode='bilinear', align_corners=False)
         return flow
     # end
 # end
