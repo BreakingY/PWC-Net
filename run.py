@@ -50,23 +50,13 @@ for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
 import torch.nn.functional as F
 
 def torch_correlation(tenOne, tenTwo):
-    """
-    Universal ONNX-friendly correlation
-    Output: [B, 81, H, W]
-    """
-
     B, C, H, W = tenOne.shape
 
     # 1. pad to keep spatial alignment
     tenTwo = F.pad(tenTwo, (4, 4, 4, 4))  # [B, C, H+8, W+8]
 
     # 2. unfold patches
-    patches = F.unfold(
-        tenTwo,
-        kernel_size=9,
-        padding=0,
-        stride=1
-    )
+    patches = F.unfold(tenTwo, kernel_size=9, padding=0, stride=1)
     # [B, C*81, H*W]
 
     # 3. reshape safely
@@ -108,11 +98,6 @@ backwarp_tenPartial = {}
 
 #     return tenOutput[:, :-1, :, :] * tenMask
 def backwarp(tenInput, tenFlow):
-    """
-    PWC-compatible + ONNX-safe backwarp
-    (minimal modification of original implementation)
-    """
-
     B, C, H, W = tenInput.shape
     _, _, Hf, Wf = tenFlow.shape
 
@@ -120,40 +105,24 @@ def backwarp(tenInput, tenFlow):
     dtype = tenInput.dtype
 
     if Hf != H or Wf != W:
-        tenFlow = F.interpolate(
-            tenFlow,
-            size=(H, W),
-            mode='bilinear',
-            align_corners=True
-        )
+        tenFlow = F.interpolate(tenFlow, size=(H, W), mode='bilinear', align_corners=True)
 
         tenFlow[:, 0] *= W / Wf
         tenFlow[:, 1] *= H / Hf
 
-    hor = torch.linspace(-1.0, 1.0, W, device=device, dtype=dtype)\
-        .view(1, 1, 1, W).expand(B, -1, H, -1)
+    hor = torch.linspace(-1.0, 1.0, W, device=device, dtype=dtype).view(1, 1, 1, W).expand(B, -1, H, -1)
 
-    ver = torch.linspace(-1.0, 1.0, H, device=device, dtype=dtype)\
-        .view(1, 1, H, 1).expand(B, -1, -1, W)
+    ver = torch.linspace(-1.0, 1.0, H, device=device, dtype=dtype).view(1, 1, H, 1).expand(B, -1, -1, W)
 
     grid = torch.cat([hor, ver], 1)
 
-    flow = torch.cat([
-        tenFlow[:, 0:1] * (2.0 / (W - 1.0)),
-        tenFlow[:, 1:2] * (2.0 / (H - 1.0))
-    ], 1)
+    flow = torch.cat([tenFlow[:, 0:1] * (2.0 / (W - 1.0)), tenFlow[:, 1:2] * (2.0 / (H - 1.0))], 1)
 
 
     mask = torch.ones((B, 1, H, W), device=device, dtype=dtype)
     tenInput = torch.cat([tenInput, mask], 1)
 
-    output = F.grid_sample(
-        tenInput,
-        (grid + flow).permute(0, 2, 3, 1),
-        mode='bilinear',
-        padding_mode='zeros',
-        align_corners=True
-    )
+    output = F.grid_sample(tenInput, (grid + flow).permute(0, 2, 3, 1), mode='bilinear', padding_mode='zeros', align_corners=True)
 
     tenMask = output[:, -1:, :, :]
     tenMask = (tenMask > 0.999).to(dtype)
@@ -310,20 +279,10 @@ class Network(torch.nn.Module):
                     target_w = tenOne.shape[3]
 
                     if tenFlow.shape[2] != target_h or tenFlow.shape[3] != target_w:
-                        tenFlow = F.interpolate(
-                            tenFlow,
-                            size=(target_h, target_w),
-                            mode='bilinear',
-                            align_corners=True
-                        )
+                        tenFlow = F.interpolate(tenFlow, size=(target_h, target_w), mode='bilinear', align_corners=True)
 
                     if tenFeat.shape[2] != target_h or tenFeat.shape[3] != target_w:
-                        tenFeat = F.interpolate(
-                            tenFeat,
-                            size=(target_h, target_w),
-                            mode='bilinear',
-                            align_corners=True
-                        )
+                        tenFeat = F.interpolate(tenFeat, size=(target_h, target_w), mode='bilinear', align_corners=True)
                     #####################
                     tenFeat = torch.cat([ tenVolume, tenOne, tenFlow, tenFeat ], 1)
 
@@ -445,12 +404,7 @@ class OnnxWrapper(torch.nn.Module):
         return flow
 
 
-def export_onnx(
-    weight_path='./network-default.pytorch',
-    onnx_path='./pwcnet.onnx',
-    model_type='default',
-    opset=17
-):
+def export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onnx', model_type='default', opset=17):
     """
     Export PWC-style model to ONNX with dynamic batch support
     """
@@ -506,8 +460,5 @@ if __name__ == '__main__':
     numpy.array(tenOutput.numpy(force=True).transpose(1, 2, 0), numpy.float32).tofile(objOutput)
 
     objOutput.close()
-    export_onnx(
-        weight_path='./network-default.pytorch',
-        onnx_path='./pwcnet.onnx'
-    )
+    export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onnx')
 # end
