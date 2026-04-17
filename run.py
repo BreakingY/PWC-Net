@@ -48,7 +48,8 @@ for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
 修改:使用torch算子实现
 '''
 import torch.nn.functional as F
-
+# v1
+'''
 def torch_correlation(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
 
@@ -70,33 +71,61 @@ def torch_correlation(tenOne, tenTwo):
     corr = corr.view(B, 81, H, W)
 
     return corr
+'''
+# v2 针对晟腾优化
+def torch_correlation(tenOne, tenTwo):
+    B, C, H, W = tenOne.shape
+
+    # pad once
+    tenTwo = F.pad(tenTwo, (4, 4, 4, 4))
+
+    patches = []
+
+    # 9x9 = 81 shifts (ONNX-safe, no unfold)
+    for i in range(9):
+        for j in range(9):
+            shifted = tenTwo[:, :, i:i+H, j:j+W]
+            patches.append(shifted)
+
+    # [B, C, 81, H, W]
+    patches = torch.stack(patches, dim=2)
+
+    tenOne = tenOne.unsqueeze(2)  # [B, C, 1, H, W]
+
+    corr = (tenOne * patches).mean(dim=1)  # [B, 81, H, W]
+
+    return corr
 ##########################################################
 
 backwarp_tenGrid = {}
 backwarp_tenPartial = {}
+"""
+# v0:原项目代码
+def backwarp(tenInput, tenFlow):
+    if str(tenFlow.shape) not in backwarp_tenGrid:
+        tenHor = torch.linspace(-1.0, 1.0, tenFlow.shape[3]).view(1, 1, 1, -1).repeat(1, 1, tenFlow.shape[2], 1)
+        tenVer = torch.linspace(-1.0, 1.0, tenFlow.shape[2]).view(1, 1, -1, 1).repeat(1, 1, 1, tenFlow.shape[3])
+
+        backwarp_tenGrid[str(tenFlow.shape)] = torch.cat([ tenHor, tenVer ], 1).cuda()
+    # end
+
+    if str(tenFlow.shape) not in backwarp_tenPartial:
+        backwarp_tenPartial[str(tenFlow.shape)] = tenFlow.new_ones([ tenFlow.shape[0], 1, tenFlow.shape[2], tenFlow.shape[3] ])
+    # end
+
+    tenFlow = torch.cat([ tenFlow[:, 0:1, :, :] * (2.0 / (tenInput.shape[3] - 1.0)), tenFlow[:, 1:2, :, :] * (2.0 / (tenInput.shape[2] - 1.0)) ], 1)
+    tenInput = torch.cat([ tenInput, backwarp_tenPartial[str(tenFlow.shape)] ], 1)
+
+    tenOutput = torch.nn.functional.grid_sample(input=tenInput, grid=(backwarp_tenGrid[str(tenFlow.shape)] + tenFlow).permute(0, 2, 3, 1), mode='bilinear', padding_mode='zeros', align_corners=True)
+
+    tenMask = tenOutput[:, -1:, :, :]; tenMask[tenMask > 0.999] = 1.0; tenMask[tenMask < 1.0] = 0.0
+
+    return tenOutput[:, :-1, :, :] * tenMask
+"""
 '''
 修改:导出onnx, 设备统一
 '''
-# def backwarp(tenInput, tenFlow):
-#     if str(tenFlow.shape) not in backwarp_tenGrid:
-#         tenHor = torch.linspace(-1.0, 1.0, tenFlow.shape[3]).view(1, 1, 1, -1).repeat(1, 1, tenFlow.shape[2], 1)
-#         tenVer = torch.linspace(-1.0, 1.0, tenFlow.shape[2]).view(1, 1, -1, 1).repeat(1, 1, 1, tenFlow.shape[3])
-
-#         backwarp_tenGrid[str(tenFlow.shape)] = torch.cat([ tenHor, tenVer ], 1).cuda()
-#     # end
-
-#     if str(tenFlow.shape) not in backwarp_tenPartial:
-#         backwarp_tenPartial[str(tenFlow.shape)] = tenFlow.new_ones([ tenFlow.shape[0], 1, tenFlow.shape[2], tenFlow.shape[3] ])
-#     # end
-
-#     tenFlow = torch.cat([ tenFlow[:, 0:1, :, :] * (2.0 / (tenInput.shape[3] - 1.0)), tenFlow[:, 1:2, :, :] * (2.0 / (tenInput.shape[2] - 1.0)) ], 1)
-#     tenInput = torch.cat([ tenInput, backwarp_tenPartial[str(tenFlow.shape)] ], 1)
-
-#     tenOutput = torch.nn.functional.grid_sample(input=tenInput, grid=(backwarp_tenGrid[str(tenFlow.shape)] + tenFlow).permute(0, 2, 3, 1), mode='bilinear', padding_mode='zeros', align_corners=True)
-
-#     tenMask = tenOutput[:, -1:, :, :]; tenMask[tenMask > 0.999] = 1.0; tenMask[tenMask < 1.0] = 0.0
-
-#     return tenOutput[:, :-1, :, :] * tenMask
+# v1
 def backwarp(tenInput, tenFlow):
     B, C, H, W = tenInput.shape
     _, _, Hf, Wf = tenFlow.shape

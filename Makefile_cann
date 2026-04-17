@@ -1,0 +1,42 @@
+# Makefile for infer_cann
+CXX := g++
+# 8.2.RC1
+CXXFLAGS := -g -std=c++17 \
+            -DENABLE_DVPP_INTERFACE \
+            -I/usr/local/Ascend/ascend-toolkit/latest/runtime/include \
+            -I/usr/local/Ascend/ascend-toolkit/latest/runtime/include/acl \
+            -I/usr/local/Ascend/ascend-toolkit/latest/runtime/include/acl/dvpp \
+            -I/usr/local/include/opencv4
+
+
+LDFLAGS := -L/usr/local/Ascend/ascend-toolkit/latest/runtime/lib64 \
+           -L/usr/local/lib
+
+# 8.5.0
+# CXXFLAGS := -g -std=c++17 \
+#             -DENABLE_DVPP_INTERFACE \
+#             -I/usr/local/Ascend/cann/runtime/include \
+#             -I/usr/local/Ascend/cann/runtime/include/acl \
+#             -I/usr/local/Ascend/cann/runtime/include/acl/dvpp \
+#             -I/usr/local/include/opencv4
+# 
+# 
+# LDFLAGS := -L/usr/local/Ascend/cann/lib64 \
+#            -L/usr/local/lib
+
+LDLIBS := -lascendcl -lacl_dvpp_mpi \
+          -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -lopencv_highgui -lopencv_videoio
+
+
+TARGET := infer_cann
+SRC := infer_cann.cpp
+
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS) $(LDLIBS)
+
+
+clean:
+	rm -f $(TARGET)
