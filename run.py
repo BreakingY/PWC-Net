@@ -48,7 +48,7 @@ for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
 修改:使用torch算子实现
 '''
 import torch.nn.functional as F
-# v1
+# v1 tensorrt推荐使用v1
 '''
 def torch_correlation(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
@@ -77,7 +77,7 @@ def torch_correlation(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
 
     # pad once
-    tenTwo = F.pad(tenTwo, (4, 4, 4, 4))
+    tenTwo = F.pad(tenTwo, (4, 4, 4, 4)) # [B, C, H+8, W+8]
 
     patches = []
 
@@ -96,11 +96,10 @@ def torch_correlation(tenOne, tenTwo):
 
     return corr
 ##########################################################
-
-backwarp_tenGrid = {}
-backwarp_tenPartial = {}
 """
 # v0:原项目代码
+backwarp_tenGrid = {}
+backwarp_tenPartial = {}
 def backwarp(tenInput, tenFlow):
     if str(tenFlow.shape) not in backwarp_tenGrid:
         tenHor = torch.linspace(-1.0, 1.0, tenFlow.shape[3]).view(1, 1, 1, -1).repeat(1, 1, tenFlow.shape[2], 1)
@@ -132,12 +131,6 @@ def backwarp(tenInput, tenFlow):
 
     device = tenInput.device
     dtype = tenInput.dtype
-
-    if Hf != H or Wf != W:
-        tenFlow = F.interpolate(tenFlow, size=(H, W), mode='bilinear', align_corners=True)
-
-        tenFlow[:, 0] *= W / Wf
-        tenFlow[:, 1] *= H / Hf
 
     hor = torch.linspace(-1.0, 1.0, W, device=device, dtype=dtype).view(1, 1, 1, W).expand(B, -1, H, -1)
 
@@ -300,19 +293,7 @@ class Network(torch.nn.Module):
                     '''
                     # tenVolume = torch.nn.functional.leaky_relu(input=correlation.FunctionCorrelation(tenOne=tenOne, tenTwo=backwarp(tenInput=tenTwo, tenFlow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
                     tenVolume = torch.nn.functional.leaky_relu(input=torch_correlation(tenOne, backwarp(tenInput=tenTwo, tenFlow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
-                    '''
-                    修复:onnx导出
-                    '''
-                    #####################
-                    target_h = tenOne.shape[2]
-                    target_w = tenOne.shape[3]
 
-                    if tenFlow.shape[2] != target_h or tenFlow.shape[3] != target_w:
-                        tenFlow = F.interpolate(tenFlow, size=(target_h, target_w), mode='bilinear', align_corners=True)
-
-                    if tenFeat.shape[2] != target_h or tenFeat.shape[3] != target_w:
-                        tenFeat = F.interpolate(tenFeat, size=(target_h, target_w), mode='bilinear', align_corners=True)
-                    #####################
                     tenFeat = torch.cat([ tenVolume, tenOne, tenFlow, tenFeat ], 1)
 
                 # end
@@ -385,10 +366,13 @@ class Network(torch.nn.Module):
 
         # return (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
         '''
-        修复: 固定flow尺寸
+        修复: flow尺寸
         '''
         flow = (objEstimate['tenFlow'] + self.netRefiner(objEstimate['tenFeat'])) * 20.0
         flow = torch.nn.functional.interpolate(flow, size=(intHeight, intWidth), mode='bilinear', align_corners=False)
+        scale_w = float(intWidth) / float(flow.shape[3])
+        scale_h = float(intHeight) / float(flow.shape[2])
+        flow = torch.stack([flow[:, 0] * scale_w, flow[:, 1] * scale_h], dim=1)
         return flow
     # end
 # end
