@@ -442,14 +442,14 @@ int main(int argc, char **argv){
     aclmdlIODims input_dims1, input_dims2;
     CHECK_ACL(aclmdlGetInputDims(model_desc, 0, &input_dims1));
     CHECK_ACL(aclmdlGetInputDims(model_desc, 1, &input_dims2));
-    input_dims1.dims[2] > 0 ? input_h = input_dims1.dims[2]: input_h = 448;
-    input_dims1.dims[3] > 0 ? input_w = input_dims1.dims[3]: input_w = 1024;
+    input_dims1.dims[2] > 0 ? input_h = input_dims1.dims[2]: input_h = 384;
+    input_dims1.dims[3] > 0 ? input_w = input_dims1.dims[3]: input_w = 768;
     std::cout << "input_h: " << input_h << " input_w: " << input_w << std::endl;
 
     aclmdlIODims output_dims;
     CHECK_ACL(aclmdlGetOutputDims(model_desc, 0, &output_dims));
-    output_dims.dims[2] > 0 ? input_h_flow = output_dims.dims[2]: input_h_flow = 448;
-    output_dims.dims[3] > 0 ? input_w_flow = output_dims.dims[3]: input_w_flow = 1024;
+    output_dims.dims[2] > 0 ? input_h_flow = output_dims.dims[2]: input_h_flow = 384;
+    output_dims.dims[3] > 0 ? input_w_flow = output_dims.dims[3]: input_w_flow = 768;
     std::cout << "input_h_flow: " << input_h_flow << " input_w_flow: " << input_w_flow << std::endl;
     assert(input_h == input_h_flow);
     assert(input_w_flow == input_w_flow);

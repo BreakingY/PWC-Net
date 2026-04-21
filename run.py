@@ -73,6 +73,7 @@ def torch_correlation(tenOne, tenTwo):
     return corr
 '''
 # v2 针对晟腾优化
+'''
 def torch_correlation(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
 
@@ -93,6 +94,28 @@ def torch_correlation(tenOne, tenTwo):
     tenOne = tenOne.unsqueeze(2)  # [B, C, 1, H, W]
 
     corr = (tenOne * patches).mean(dim=1)  # [B, 81, H, W]
+
+    return corr
+'''
+# v3 针对晟腾优化
+def torch_correlation(tenOne, tenTwo):
+    B, C, H, W = tenOne.shape
+
+    # pad once
+    tenTwo = F.pad(tenTwo, (4, 4, 4, 4))  # [B, C, H+8, W+8]
+
+    corr = tenOne.new_zeros(B, 81, H, W)
+
+    idx = 0
+    for dy in range(-4, 5):
+        for dx in range(-4, 5):
+            shifted = tenTwo[:, :, 
+                             (4 + dy):(4 + dy + H),
+                             (4 + dx):(4 + dx + W)]
+            
+            # same computation as unfold version
+            corr[:, idx] = (tenOne * shifted).mean(dim=1)
+            idx += 1
 
     return corr
 ##########################################################
@@ -122,9 +145,10 @@ def backwarp(tenInput, tenFlow):
     return tenOutput[:, :-1, :, :] * tenMask
 """
 '''
-修改:导出onnx, 设备统一
+修改:导出onnx
 '''
-# v1
+# v1 tensorrt推荐使用v1
+'''
 def backwarp(tenInput, tenFlow):
     B, C, H, W = tenInput.shape
     _, _, Hf, Wf = tenFlow.shape
@@ -150,6 +174,37 @@ def backwarp(tenInput, tenFlow):
     tenMask = (tenMask > 0.999).to(dtype)
 
     return output[:, :-1, :, :] * tenMask
+'''
+# v2 针对晟腾优化
+def backwarp(tenInput, tenFlow):
+    B, C, H, W = tenInput.shape
+    device = tenInput.device
+    dtype = tenInput.dtype
+
+    hor = torch.linspace(-1.0, 1.0, W, device=device, dtype=dtype)
+    ver = torch.linspace(-1.0, 1.0, H, device=device, dtype=dtype)
+
+    grid_y, grid_x = torch.meshgrid(ver, hor, indexing='ij')
+
+    grid = torch.stack((grid_x, grid_y), dim=-1)  # [H, W, 2]
+    grid = grid.unsqueeze(0).expand(B, -1, -1, -1)  # [B, H, W, 2]
+
+    flow = torch.cat([
+        tenFlow[:, 0:1] * (2.0 / (W - 1.0)),
+        tenFlow[:, 1:2] * (2.0 / (H - 1.0))
+    ], dim=1)
+
+    grid = grid + flow.permute(0, 2, 3, 1)
+
+    output = F.grid_sample(
+        tenInput,
+        grid,
+        mode='bilinear',
+        padding_mode='zeros',
+        align_corners=True
+    )
+
+    return output
 # end
 
 ##########################################################
@@ -445,8 +500,8 @@ def export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onn
     wrapper.eval()
 
 
-    dummy_one = torch.randn(1, 3, 448, 1024, dtype=torch.float32)
-    dummy_two = torch.randn(1, 3, 448, 1024, dtype=torch.float32)
+    dummy_one = torch.randn(1, 3, 384, 768, dtype=torch.float32)
+    dummy_two = torch.randn(1, 3, 384, 768, dtype=torch.float32)
 
     dynamic_axes = {
         'input1': {0: 'batch'},

@@ -12,7 +12,7 @@ def create_session(onnx_path):
     )
 
 
-def preprocess(img, target_h=448, target_w=1024):
+def preprocess(img, target_h=384, target_w=768):
     """
     BGR -> CHW -> float32
     """
@@ -25,7 +25,7 @@ def preprocess(img, target_h=448, target_w=1024):
     return img
 
 
-def postprocess_flow(flow, orig_h, orig_w, net_h=448, net_w=1024):
+def postprocess_flow(flow, orig_h, orig_w, net_h=384, net_w=768):
     """
     flow: [1,2,H,W]
     return: [2,orig_h,orig_w]
@@ -55,7 +55,7 @@ def infer_batch1(session, img1, img2):
     one = preprocess(img1)
     two = preprocess(img2)
 
-    one = np.expand_dims(one, 0)  # [1,3,448,1024]
+    one = np.expand_dims(one, 0)
     two = np.expand_dims(two, 0)
 
     flow = session.run(
@@ -64,7 +64,7 @@ def infer_batch1(session, img1, img2):
             "input1": one,
             "input2": two
         }
-    )[0]  # [1,2,448,1024]
+    )[0]
 
     flow = postprocess_flow(flow, h, w)
 
@@ -87,8 +87,8 @@ def infer_batch2(session, img1, img2):
     img1 = preprocess(img1)
     img2 = preprocess(img2)
 
-    batch_one = np.stack([img1, img1], axis=0)  # [2,3,448,1024]
-    batch_two = np.stack([img2, img2], axis=0)  # [2,3,448,1024]
+    batch_one = np.stack([img1, img1], axis=0)
+    batch_two = np.stack([img2, img2], axis=0)
 
     flows = session.run(
         None,
@@ -96,7 +96,7 @@ def infer_batch2(session, img1, img2):
             "input1": batch_one,
             "input2": batch_two
         }
-    )[0]  # [2,2,448,1024]
+    )[0]
 
     results = []
 
