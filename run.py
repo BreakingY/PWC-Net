@@ -383,9 +383,10 @@ netNetwork = None
 
 def estimate(tenOne, tenTwo):
     global netNetwork
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if netNetwork is None:
-        netNetwork = Network().cuda().train(False)
+        # netNetwork = Network().cuda().train(False)
+        netNetwork = Network().to(device).train(False)
     # end
 
     assert(tenOne.shape[1] == tenTwo.shape[1])
@@ -397,8 +398,10 @@ def estimate(tenOne, tenTwo):
     assert(intWidth == 1024) # remember that there is no guarantee for correctness, comment this line out if you acknowledge this and want to continue
     assert(intHeight == 436) # remember that there is no guarantee for correctness, comment this line out if you acknowledge this and want to continue
 
-    tenPreprocessedOne = tenOne.cuda().view(1, 3, intHeight, intWidth)
-    tenPreprocessedTwo = tenTwo.cuda().view(1, 3, intHeight, intWidth)
+    # tenPreprocessedOne = tenOne.cuda().view(1, 3, intHeight, intWidth)
+    # tenPreprocessedTwo = tenTwo.cuda().view(1, 3, intHeight, intWidth)
+    tenPreprocessedOne = tenOne.view(1, 3, intHeight, intWidth).to(device)
+    tenPreprocessedTwo = tenTwo.view(1, 3, intHeight, intWidth).to(device)
 
     intPreprocessedWidth = int(math.floor(math.ceil(intWidth / 64.0) * 64.0))
     intPreprocessedHeight = int(math.floor(math.ceil(intHeight / 64.0) * 64.0))
