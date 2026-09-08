@@ -1,30 +1,54 @@
 # Makefile for infer_trt
 CXX := g++
+
+TRT_VERSION ?= TRT_10
+
+
+ifeq ($(TRT_VERSION),TRT_10)
+    TRT_PATH := /data/sunkx/TensorRT-10.4.0.26
+    TRT_DEFINE := -DTRT_10
+else ifeq ($(TRT_VERSION),TRT_84_85)
+    TRT_PATH := /data/sunkx/TensorRT-8.5.1.7
+    TRT_DEFINE := -DTRT_84_85
+else
+    $(error Unsupported TRT_VERSION=$(TRT_VERSION))
+endif
+
+
 CXXFLAGS := -g -std=c++17 \
-            -I/data/sunkx/TensorRT-10.4.0.26/include \
+            $(TRT_DEFINE) \
+            -I$(TRT_PATH)/include \
             -I/usr/local/cuda/include \
             -I/usr/local/include/opencv4
 
 
-LDFLAGS := -L/data/sunkx/TensorRT-10.4.0.26/lib \
+# ===============================
+# Link flags
+# ===============================
+
+LDFLAGS := -L$(TRT_PATH)/lib \
            -L/usr/local/cuda/lib64 \
            -L/usr/local/lib
 
-
-LDLIBS := -lnvinfer -lcudart \
-          -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -lopencv_highgui -lopencv_videoio \
-		  -lnppig -lnppidei -lnppial
-
+LDLIBS := -lnvinfer \
+          -lcudart \
+          -lopencv_core \
+          -lopencv_imgproc \
+          -lopencv_imgcodecs \
+          -lopencv_highgui \
+          -lopencv_videoio \
+          -lnppig \
+          -lnppidei \
+          -lnppial
 
 TARGET := infer_trt
-SRC := infer_trt.cpp
 
+SRC := infer_trt.cpp
 
 all: $(TARGET)
 
 $(TARGET): $(SRC)
 	$(CXX) $(CXXFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS) $(LDLIBS)
-
 
 clean:
 	rm -f $(TARGET)

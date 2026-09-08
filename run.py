@@ -32,25 +32,67 @@ args_strOne = './images/one.png'
 args_strTwo = './images/two.png'
 args_strOut = './out.flo'
 
+# 后端：
+# trt104
+# trt85
+# trt84
+# cann 
+args_strBackend = 'trt104'
+
 for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
     'model=',
     'one=',
     'two=',
     'out=',
+    'backend=',
 ])[0]:
     if strOption == '--model' and strArg != '': args_strModel = strArg # which model to use
     if strOption == '--one' and strArg != '': args_strOne = strArg # path to the first frame
     if strOption == '--two' and strArg != '': args_strTwo = strArg # path to the second frame
     if strOption == '--out' and strArg != '': args_strOut = strArg # path to where the output should be stored
+    if strOption == '--backend' and strArg != '': args_strBackend = strArg
+VALID_BACKENDS = {'trt104', 'trt85', 'trt84', 'cann'}
+
+if args_strBackend not in VALID_BACKENDS:
+    raise ValueError(
+        f'Unsupported backend: {args_strBackend}. '
+        f'Available backends: {sorted(VALID_BACKENDS)}'
+    )
+
+print(f'[INFO] Backend: {args_strBackend}')
+def print_backend_info():
+
+    if args_strBackend in ('trt104', 'trt85'):
+        correlation_version = 'v1'
+        backwarp_version = 'v1'
+
+    elif args_strBackend == 'trt84':
+        correlation_version = 'v2'
+        backwarp_version = 'v2'
+
+    elif args_strBackend == 'cann':
+            correlation_version = 'v3'
+            backwarp_version = 'v2'
+
+    else:
+        raise RuntimeError(f'Unsupported backend: {args_strBackend}')
+
+    print('=' * 60)
+    print('PWC-Net backend configuration')
+    print('=' * 60)
+    print(f'Backend            : {args_strBackend}')
+    print(f'torch_correlation  : {correlation_version}')
+    print(f'backwarp           : {backwarp_version}')
+    print('=' * 60)
+print_backend_info()
 # end
 ##########################################################
 '''
 修改:使用torch算子实现
 '''
 import torch.nn.functional as F
-# v1 tensorrt推荐使用v1
-'''
-def torch_correlation(tenOne, tenTwo):
+# v1 tensorrt推荐使用v1 适配TensorRT10.4和TensorRT8.5
+def torch_correlation_v1(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
 
     # 1. pad to keep spatial alignment
@@ -71,34 +113,146 @@ def torch_correlation(tenOne, tenTwo):
     corr = corr.view(B, 81, H, W)
 
     return corr
-'''
-# v2 针对晟腾优化
-'''
-def torch_correlation(tenOne, tenTwo):
+# v2 适配TensorRT8.4(Jetson)
+def torch_correlation_v2(tenOne, tenTwo):
+    """
+    不使用 F.pad / F.unfold 的实现。
+
+    保持与原始 torch_correlation 完全一致：
+
+        channel 顺序:
+            dy = -4 ... +4
+            dx = -4 ... +4
+
+        对每一个输出位置:
+
+            shifted[y, x] = tenTwo[y + dy, x + dx]
+
+        越界部分补 0。
+
+    输入:
+        tenOne: [B, C, H, W]
+        tenTwo: [B, C, H, W]
+
+    输出:
+        [B, 81, H, W]
+    """
+
     B, C, H, W = tenOne.shape
 
-    # pad once
-    tenTwo = F.pad(tenTwo, (4, 4, 4, 4)) # [B, C, H+8, W+8]
+    outputs = []
 
-    patches = []
+    # -------------------------------------------------------------------------
+    # F.unfold 的 81 个 channel 顺序：
+    #
+    # dy = -4 ... +4
+    # dx = -4 ... +4
+    #
+    # channel = (dy + 4) * 9 + (dx + 4)
+    # -------------------------------------------------------------------------
 
-    # 9x9 = 81 shifts (ONNX-safe, no unfold)
-    for i in range(9):
-        for j in range(9):
-            shifted = tenTwo[:, :, i:i+H, j:j+W]
-            patches.append(shifted)
+    for dy in range(-4, 5):
 
-    # [B, C, 81, H, W]
-    patches = torch.stack(patches, dim=2)
+        # =====================================================================
+        # Y 方向 shift
+        #
+        # 目标：
+        #
+        #     shifted_y[y, x] = tenTwo[y + dy, x]
+        #
+        # 越界补 0
+        # =====================================================================
 
-    tenOne = tenOne.unsqueeze(2)  # [B, C, 1, H, W]
+        if dy > 0:
 
-    corr = (tenOne * patches).mean(dim=1)  # [B, 81, H, W]
+            # 例如 dy = +1:
+            #
+            # shifted:
+            #
+            #   tenTwo[1]
+            #   tenTwo[2]
+            #   ...
+            #   tenTwo[H-1]
+            #   0
 
-    return corr
-'''
+            shifted_y = torch.cat([tenTwo[:, :, dy:, :],torch.zeros_like(tenTwo[:, :, :dy, :])],dim=2)
+
+        elif dy < 0:
+
+            # 例如 dy = -1:
+            #
+            # shifted:
+            #
+            #   0
+            #   tenTwo[0]
+            #   tenTwo[1]
+            #   ...
+            #   tenTwo[H-2]
+
+            k = -dy
+
+            shifted_y = torch.cat([torch.zeros_like(tenTwo[:, :, :k, :]),tenTwo[:, :, :H-k, :]],dim=2)
+        else:
+            shifted_y = tenTwo
+
+        # =====================================================================
+        # X 方向 shift
+        # =====================================================================
+
+        for dx in range(-4, 5):
+
+            # -----------------------------------------------------------------
+            # 目标：
+            #
+            # shifted[y, x] = shifted_y[y, x + dx]
+            #
+            # 越界补 0
+            # -----------------------------------------------------------------
+
+            if dx > 0:
+
+                # 例如 dx = +1:
+                #
+                # shifted:
+                #
+                #   tenTwo[:, 1:]
+                #   0
+
+                shifted = torch.cat([shifted_y[:, :, :, dx:],torch.zeros_like(shifted_y[:, :, :, :dx])],dim=3)
+
+            elif dx < 0:
+
+                # 例如 dx = -1:
+                #
+                # shifted:
+                #
+                #   0
+                #   tenTwo[:, :-1]
+
+                k = -dx
+
+                shifted = torch.cat([torch.zeros_like(shifted_y[:, :, :, :k]),shifted_y[:, :, :, :W-k]],dim=3)
+
+            else:
+
+                shifted = shifted_y
+
+            # -----------------------------------------------------------------
+            # correlation
+            # -----------------------------------------------------------------
+
+            corr = (tenOne * shifted).mean(dim=1)
+
+            outputs.append(corr)
+
+    # [81, B, H, W]
+    #
+    # stack(dim=1):
+    #
+    # [B, 81, H, W]
+    return torch.stack(outputs,dim=1)
 # v3 针对晟腾优化
-def torch_correlation(tenOne, tenTwo):
+def torch_correlation_v3(tenOne, tenTwo):
     B, C, H, W = tenOne.shape
 
     # pad once
@@ -118,6 +272,21 @@ def torch_correlation(tenOne, tenTwo):
             idx += 1
 
     return corr
+
+
+def torch_correlation(tenOne, tenTwo):
+
+    if args_strBackend in ('trt104', 'trt85'):
+        return torch_correlation_v1(tenOne,tenTwo)
+
+    elif args_strBackend == 'trt84':
+        return torch_correlation_v2(tenOne,tenTwo)
+
+    elif args_strBackend == 'cann':
+        return torch_correlation_v3(tenOne,tenTwo)
+
+    else:
+        raise RuntimeError(f'Unsupported backend: {args_strBackend}')
 ##########################################################
 """
 # v0:原项目代码
@@ -147,9 +316,8 @@ def backwarp(tenInput, tenFlow):
 '''
 修改:导出onnx
 '''
-# v1 tensorrt推荐使用v1
-'''
-def backwarp(tenInput, tenFlow):
+# v1 tensorrt推荐使用v1 适配TensorRT10.4和TensorRT8.5
+def backwarp_v1(tenInput, tenFlow):
     B, C, H, W = tenInput.shape
     _, _, Hf, Wf = tenFlow.shape
 
@@ -174,9 +342,187 @@ def backwarp(tenInput, tenFlow):
     tenMask = (tenMask > 0.999).to(dtype)
 
     return output[:, :-1, :, :] * tenMask
-'''
-# v2 针对晟腾优化
-def backwarp(tenInput, tenFlow):
+# v2 适配TensorRT8.4
+def backwarp_v2(tenInput, tenFlow):
+    B, C, H, W = tenInput.shape
+    _, _, Hf, Wf = tenFlow.shape
+
+    assert H == Hf and W == Wf
+
+    device = tenInput.device
+    dtype = tenInput.dtype
+
+    # -------------------------------------------------------------------------
+    # 1. 构造和 backwarp_v1 完全一致的 normalized grid
+    # -------------------------------------------------------------------------
+
+    hor = torch.linspace(-1.0,1.0,W,device=device,dtype=dtype).view(1, 1, 1, W).expand(B, -1, H, -1)
+
+    ver = torch.linspace(-1.0,1.0,H,device=device,dtype=dtype).view(1, 1, H, 1).expand(B, -1, -1, W)
+
+    grid = torch.cat([hor, ver], 1)
+
+    # -------------------------------------------------------------------------
+    # 2. 和 v1 完全一致的 flow normalized 坐标
+    # -------------------------------------------------------------------------
+
+    flow = torch.cat([tenFlow[:, 0:1] * (2.0 / (W - 1.0)),tenFlow[:, 1:2] * (2.0 / (H - 1.0))], 1)
+
+    grid = grid + flow
+
+    # -------------------------------------------------------------------------
+    # 3. normalized coordinates -> pixel coordinates
+    #
+    # align_corners=True:
+    #
+    # x_pixel = (x_normalized + 1) * (W - 1) / 2
+    # y_pixel = (y_normalized + 1) * (H - 1) / 2
+    # -------------------------------------------------------------------------
+
+    x = ((grid[:, 0:1] + 1.0)* ((W - 1.0) / 2.0))
+
+    y = ((grid[:, 1:2] + 1.0)* ((H - 1.0) / 2.0))
+
+    # -------------------------------------------------------------------------
+    # 4. 双线性插值四个邻居
+    # -------------------------------------------------------------------------
+
+    x0 = torch.floor(x)
+    y0 = torch.floor(y)
+
+    x1 = x0 + 1.0
+    y1 = y0 + 1.0
+
+    # interpolation weight
+    wx = x - x0
+    wy = y - y0
+
+    # -------------------------------------------------------------------------
+    # 5. 四个邻居分别判断是否有效
+    #
+    # 这是和之前版本最大的区别。
+    #
+    # 例如：
+    #
+    # y = 383.0007
+    #
+    # y0 = 383       -> 有效
+    # y1 = 384       -> 无效
+    #
+    # grid_sample padding_mode='zeros'
+    # 会让 y1 对应的采样值为 0，
+    # 但不会让整个采样点直接变成 0。
+    # -------------------------------------------------------------------------
+
+    valid00 = ((x0 >= 0.0) &(x0 < float(W)) &(y0 >= 0.0) &(y0 < float(H)))
+
+    valid01 = ((x1 >= 0.0) &(x1 < float(W)) &(y0 >= 0.0) &(y0 < float(H)))
+
+    valid10 = ((x0 >= 0.0) &(x0 < float(W)) &(y1 >= 0.0) &(y1 < float(H)))
+
+    valid11 = ((x1 >= 0.0) &(x1 < float(W)) &(y1 >= 0.0) &(y1 < float(H)))
+
+    # -------------------------------------------------------------------------
+    # 6. 越界坐标 clamp
+    #
+    # 只是为了让 gather 能够正常访问。
+    # 真正是否有效由上面的 valid mask 决定。
+    # -------------------------------------------------------------------------
+
+    x0_safe = x0.clamp(0, W - 1).long()
+    x1_safe = x1.clamp(0, W - 1).long()
+
+    y0_safe = y0.clamp(0, H - 1).long()
+    y1_safe = y1.clamp(0, H - 1).long()
+
+    # -------------------------------------------------------------------------
+    # 7. 转换成 flatten index
+    #
+    # input:
+    #   [B, C, H, W]
+    #
+    # flatten:
+    #   [B, C*H*W]
+    #
+    # index:
+    #   y * W + x
+    # -------------------------------------------------------------------------
+
+    base = (torch.arange(B, device=device).view(B, 1, 1, 1).expand(B, C, H, W))
+
+    channel = (torch.arange(C, device=device).view(1, C, 1, 1).expand(B, C, H, W))
+
+    # 注意：
+    # 这里的 base/channel 只是构造 batch/channel offset。
+    #
+    # 最终 index 对应：
+    #
+    # ((b * C + c) * H + y) * W + x
+
+    index00 = (((base * C + channel) * H + y0_safe.expand(B, C, H, W))* W+ x0_safe.expand(B, C, H, W)).long()
+
+    index01 = (((base * C + channel) * H + y0_safe.expand(B, C, H, W))* W+ x1_safe.expand(B, C, H, W)).long()
+
+    index10 = (((base * C + channel) * H + y1_safe.expand(B, C, H, W))* W+ x0_safe.expand(B, C, H, W)).long()
+
+    index11 = (((base * C + channel) * H + y1_safe.expand(B, C, H, W))* W+ x1_safe.expand(B, C, H, W)).long()
+
+    # -------------------------------------------------------------------------
+    # 8. flatten input
+    # -------------------------------------------------------------------------
+
+    input_flat = tenInput.reshape(-1)
+
+    # -------------------------------------------------------------------------
+    # 9. gather 四个邻居
+    # -------------------------------------------------------------------------
+
+    v00 = torch.gather(input_flat,0,index00.reshape(-1)).reshape(B, C, H, W)
+
+    v01 = torch.gather(input_flat,0,index01.reshape(-1)).reshape(B, C, H, W)
+
+    v10 = torch.gather(input_flat,0,index10.reshape(-1)).reshape(B, C, H, W)
+
+    v11 = torch.gather(input_flat,0,index11.reshape(-1)).reshape(B, C, H, W)
+
+    # -------------------------------------------------------------------------
+    # 10. 越界邻居按照 padding_mode='zeros' 处理
+    # -------------------------------------------------------------------------
+
+    v00 = v00 * valid00.to(dtype)
+    v01 = v01 * valid01.to(dtype)
+    v10 = v10 * valid10.to(dtype)
+    v11 = v11 * valid11.to(dtype)
+
+    # -------------------------------------------------------------------------
+    # 11. 双线性插值
+    # -------------------------------------------------------------------------
+
+    output = (v00 * (1.0 - wx) * (1.0 - wy)+ v01 * wx * (1.0 - wy)+ v10 * (1.0 - wx) * wy+ v11 * wx * wy)
+
+    # -------------------------------------------------------------------------
+    # 12. 和 v1 一样构造 mask
+    #
+    # 注意：
+    # 这里不能使用简单的坐标 valid mask。
+    # v1 是先对 mask 做 grid_sample，
+    # 然后：
+    #
+    # tenMask = (tenMask > 0.999)
+    #
+    # 因此这里也需要按照同样的方式计算 mask。
+    # -------------------------------------------------------------------------
+
+    mask = torch.ones((B, 1, H, W),device=device,dtype=dtype)
+
+    # mask 是全 1，因此只需要计算它对应的双线性插值。
+    mask_output = (valid00.to(dtype) * (1.0 - wx) * (1.0 - wy)+ valid01.to(dtype) * wx * (1.0 - wy)+ valid10.to(dtype) * (1.0 - wx) * wy+ valid11.to(dtype) * wx * wy)
+
+    tenMask = (mask_output > 0.999).to(dtype)
+
+    return output * tenMask
+# v3 针对晟腾优化
+def backwarp_v3(tenInput, tenFlow):
     B, C, H, W = tenInput.shape
     device = tenInput.device
     dtype = tenInput.dtype
@@ -205,7 +551,20 @@ def backwarp(tenInput, tenFlow):
     )
 
     return output
-# end
+
+
+def backwarp(tenInput, tenFlow):
+    if args_strBackend in ('trt104', 'trt85'):
+        return backwarp_v1(tenInput, tenFlow)
+
+    elif args_strBackend == 'trt84':
+        return backwarp_v2(tenInput, tenFlow)
+    
+    elif args_strBackend == 'cann':
+        return backwarp_v3(tenInput, tenFlow)
+
+    else:
+        return backwarp_v1(tenInput, tenFlow)
 
 ##########################################################
 
@@ -519,7 +878,8 @@ def export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onn
         input_names=['input1', 'input2'],
         output_names=['output'],
         dynamic_axes=dynamic_axes,
-        verbose=False
+        verbose=False,
+        keep_initializers_as_inputs=False
     )
 
     print(f"[OK] ONNX exported to: {onnx_path}")
@@ -538,5 +898,6 @@ if __name__ == '__main__':
     numpy.array(tenOutput.numpy(force=True).transpose(1, 2, 0), numpy.float32).tofile(objOutput)
 
     objOutput.close()
-    export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onnx')
+    onnx_path = f'./pwcnet_{args_strBackend}.onnx'
+    export_onnx(weight_path='./network-default.pytorch', onnx_path=onnx_path)
 # end

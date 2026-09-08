@@ -16,6 +16,8 @@
 #include <npp.h>
 #include "NvInfer.h"
 #ifndef CUDA_CHECK
+// #define TRT_84_85
+// #define TRT_10
 #define CUDA_CHECK(callstr)\
     {\
         cudaError_t error_code = callstr;\
@@ -131,6 +133,7 @@ void PreprocessImage_GPU(cv::Mat &img, void *buffer, int input_h, int input_w, c
     CUDA_CHECK(cudaFree(ptr_float));
     return;
 }
+
 size_t CountElement(const nvinfer1::Dims &dims, int batch_zise)
 {
     int64_t total = batch_zise;
@@ -139,6 +142,21 @@ size_t CountElement(const nvinfer1::Dims &dims, int batch_zise)
     }
     return static_cast<size_t>(total);
 }
+#if defined(TRT_84_85)
+// test version TensorRT-8.5.1.7 TensorRT-8.4.1.5
+int Inference(nvinfer1::IExecutionContext* context, void** buffers, void* output, int one_output_len, const int batch_size, int channel, int input_h, int input_w, 
+                std::vector<std::pair<int, std::string>> in_tensor_info, std::vector<std::pair<int, std::string>> out_tensor_info, cudaStream_t stream){
+    context->setBindingDimensions(in_tensor_info[0].first, nvinfer1::Dims4(batch_size, channel, input_h, input_w));
+    context->setBindingDimensions(in_tensor_info[1].first, nvinfer1::Dims4(batch_size, channel, input_h, input_w));
+    if(!context->enqueueV2(buffers, stream, nullptr)) {
+        std::cerr << "enqueueV2 failed!" << std::endl;
+        return -2;
+    }
+    CUDA_CHECK(cudaMemcpyAsync(output, buffers[out_tensor_info[0].first], batch_size * one_output_len * sizeof(float), cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    return 0;
+}
+#elif defined(TRT_10)
 // test version TensorRT-10.4.0.26
 int Inference(nvinfer1::IExecutionContext* context, void** buffers, void* output, int one_output_len, const int batch_size, int channel, int input_h, int input_w, 
                 std::vector<std::pair<int, std::string>> in_tensor_info, std::vector<std::pair<int, std::string>> out_tensor_info, cudaStream_t stream){
@@ -158,6 +176,9 @@ int Inference(nvinfer1::IExecutionContext* context, void** buffers, void* output
     CUDA_CHECK(cudaStreamSynchronize(stream));
     return 0;
 }
+#else
+    // macro error
+#endif
 cv::Mat FlowToHSV(const cv::Mat& flow)
 {
     cv::Mat flow_split[2];
@@ -277,7 +298,7 @@ int VideoInfer(cudaStream_t &stream, std::vector<std::pair<int, std::string>> &i
     int orig_h = img_one.rows;
     int orig_w = img_one.cols;
     double fps = cap.get(cv::CAP_PROP_FPS);
-    std::cout << "FPS: " << fps << std::endl;
+    std::cout << "FPS: " << fps << " orig_h: " << orig_h << " orig_w: " << orig_w<< std::endl;
     cv::VideoWriter writer;
     const char* save_name = "flow_trt.mp4";
     writer.open(save_name, cv::VideoWriter::fourcc('m','p','4','v'), fps, cv::Size(orig_w, orig_h));
@@ -314,6 +335,121 @@ int VideoInfer(cudaStream_t &stream, std::vector<std::pair<int, std::string>> &i
     writer.release();
     return 0;
 }
+#if defined(TRT_84_85)
+// test version TensorRT-8.5.1.7 TensorRT-8.4.1.5
+int main(int argc, char **argv){
+    if(argc < 3){
+        std::cerr << "./bin eng_path video/test.mp4 or images video/picture" << std::endl;
+        return 0;
+    }
+    const char *eng_path = argv[1];
+    const char *media_path = argv[2];
+    std::string media_type = argv[3];
+    int device_id = 0;
+    cudaStream_t stream;
+    CUDA_CHECK(cudaSetDevice(device_id));
+    CUDA_CHECK(cudaStreamCreate(&stream));
+    nvinfer1::IRuntime* runtime = nvinfer1::createInferRuntime(logger);
+	assert(runtime != nullptr);
+    int model_size = 0;
+    char *trt_model_stream = ReadFromPath(eng_path,model_size);
+    assert(trt_model_stream != nullptr);
+
+    nvinfer1::ICudaEngine* engine = runtime->deserializeCudaEngine(trt_model_stream, model_size);
+	assert(engine != nullptr);
+
+    nvinfer1::IExecutionContext* context = engine->createExecutionContext();
+	assert(context != nullptr);
+    delete []trt_model_stream;
+
+    int num_bindings = engine->getNbBindings();
+	std::cout << "input/output : " << num_bindings << std::endl;
+    std::vector<std::pair<int, std::string>> in_tensor_info;
+	std::vector<std::pair<int, std::string>> out_tensor_info;
+	for (int i = 0; i < num_bindings; ++i) {
+		const char* binding_name = engine->getBindingName(i);
+		if (engine->bindingIsInput(i)) {
+            in_tensor_info.push_back({i, std::string(binding_name)});
+		}
+		else {
+            out_tensor_info.push_back({i, std::string(binding_name)});
+		}
+	}
+    
+
+    for(int idx = 0; idx < in_tensor_info.size(); idx++){
+        nvinfer1::DataType images_type = engine->getBindingDataType(in_tensor_info[idx].first);
+        std::cout << "input: " << in_tensor_info[idx].second.c_str() << std::endl;
+        if (images_type == nvinfer1::DataType::kINT32) {
+            std::cout << "images 类型为 int32" << std::endl;
+        } 
+        // 8.5/8.4have not kINT64
+        // else if (images_type == nvinfer1::DataType::kINT64) {
+        //     std::cout << "images 类型为 int64" << std::endl;
+        // } 
+        else if (images_type == nvinfer1::DataType::kFLOAT) {
+            std::cout << "images 类型为 float" << std::endl;
+        }
+    }
+    for(int idx = 0; idx < out_tensor_info.size(); idx++){
+        nvinfer1::DataType images_type = engine->getBindingDataType(out_tensor_info[idx].first);
+        std::cout << "output: " << out_tensor_info[idx].second.c_str() << std::endl;
+        if (images_type == nvinfer1::DataType::kINT32) {
+            std::cout << "images 类型为 int32" << std::endl;
+        } 
+        // 8.5/8.4have not kINT64
+        // else if (images_type == nvinfer1::DataType::kINT64) {
+        //     std::cout << "images 类型为 int64" << std::endl;
+        // } 
+        else if (images_type == nvinfer1::DataType::kFLOAT) {
+            std::cout << "images 类型为 float" << std::endl;
+        }
+    }
+    assert(in_tensor_info.size() == 2);
+    assert(out_tensor_info.size() == 1);
+    
+    // input1和input2尺寸一致
+    int batch_size = 4; // trtexex转模型设置的最大batch
+    nvinfer1::Dims in_dims = engine->getBindingDimensions(in_tensor_info[0].first); // input1和input2尺寸一致
+    nvinfer1::Dims out_dims = engine->getBindingDimensions(out_tensor_info[0].first); // output
+    size_t max_in_size_byte = CountElement(in_dims, batch_size) * sizeof(float); // batch_size * input_h * input_w * 3 * sizeof(float)
+    size_t max_out_size_byte = CountElement(out_dims, batch_size) * sizeof(float); // batch_size * input_h_flow * input_w_flow * 2 * sizeof(float)
+    // in_dims.d[0] dynamic batch_size == -1 
+    int channel = in_dims.d[1];
+    int input_h = in_dims.d[2];
+	int input_w = in_dims.d[3];
+    std::cout << "batch_size:" << batch_size << " channel:" << channel << " input_h:" << input_h << " input_w:" << input_w << std::endl;
+
+    // out_dims.d[0] dynamic batch_size == -1
+    int channel_flow = out_dims.d[1];
+    int input_h_flow = out_dims.d[2];
+	int input_w_flow = out_dims.d[3];
+    std::cout << "batch_size_flow:" << batch_size << " channel_flow:" << channel_flow << " input_h_flow:" << input_h_flow << " input_w_flow:" << input_w_flow << std::endl;
+	
+    void* buffers[3] = {nullptr, nullptr, nullptr};
+    CUDA_CHECK(cudaMalloc(&buffers[in_tensor_info[0].first], max_in_size_byte));
+    CUDA_CHECK(cudaMalloc(&buffers[in_tensor_info[1].first], max_in_size_byte));
+
+	CUDA_CHECK(cudaMalloc(&buffers[out_tensor_info[0].first], max_out_size_byte));
+    float* output = new float[max_out_size_byte / sizeof(float)];
+    
+    if(media_type == std::string("picture"))
+        PictureInfer(stream, in_tensor_info, out_tensor_info, context, buffers, output, input_h, input_w, media_path);
+    else if(media_type == std::string("video"))
+        VideoInfer(stream, in_tensor_info, out_tensor_info, context, buffers, output, input_h, input_w, media_path);
+    else
+        std::cout << "must be picture or video" << std::endl;
+    CUDA_CHECK(cudaFree(buffers[0]));
+    CUDA_CHECK(cudaFree(buffers[1]));
+    CUDA_CHECK(cudaFree(buffers[2]));
+    delete []output;
+    CUDA_CHECK(cudaStreamDestroy(stream));
+    context->destroy();
+    engine->destroy();
+    return 0;
+}
+#elif defined(TRT_10)
+// test version TensorRT-10.4.0.26
 int main(int argc, char **argv){
     if(argc < 3){
         std::cerr << "./bin eng_path video/test.mp4 or images video/picture" << std::endl;
@@ -409,12 +545,12 @@ int main(int argc, char **argv){
 	int input_w_flow = out_dims.d[3];
     std::cout << "batch_size_flow:" << batch_size << " channel_flow:" << channel_flow << " input_h_flow:" << input_h_flow << " input_w_flow:" << input_w_flow << std::endl;
 	
-    void* buffers[3] = {nullptr, nullptr};
+    void* buffers[3] = {nullptr, nullptr, nullptr};
     CUDA_CHECK(cudaMalloc(&buffers[in_tensor_info[0].first], max_in_size_byte));
     CUDA_CHECK(cudaMalloc(&buffers[in_tensor_info[1].first], max_in_size_byte));
 
 	CUDA_CHECK(cudaMalloc(&buffers[out_tensor_info[0].first], max_out_size_byte));
-    float* output = new float[max_out_size_byte];
+    float* output = new float[max_out_size_byte / sizeof(float)];
     // set in/out tensor address
     context->setInputTensorAddress(in_tensor_info[0].second.c_str(), buffers[in_tensor_info[0].first]);
     context->setInputTensorAddress(in_tensor_info[1].second.c_str(), buffers[in_tensor_info[1].first]);
@@ -433,3 +569,6 @@ int main(int argc, char **argv){
     CUDA_CHECK(cudaStreamDestroy(stream));
     return 0;
 }
+#else
+    // macro error
+#endif
