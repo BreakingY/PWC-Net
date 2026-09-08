@@ -71,8 +71,8 @@ def print_backend_info():
         backwarp_version = 'v2'
 
     elif args_strBackend == 'cann':
-            correlation_version = 'v3'
-            backwarp_version = 'v3'
+        correlation_version = 'v3'
+        backwarp_version = 'v3'
 
     else:
         raise RuntimeError(f'Unsupported backend: {args_strBackend}')
