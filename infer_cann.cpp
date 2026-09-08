@@ -288,7 +288,7 @@ int VideoInfer(aclrtStream stream, uint32_t model_id, hi_vpc_chn channel_id_resi
                 size_t dynamic_batch_idx,
                 float* output_flow, int input_h, int input_w, std::string path)
 {
-cv::VideoCapture cap(path);
+    cv::VideoCapture cap(path);
     if (!cap.isOpened()) {
         std::cerr << "无法打开视频文件" << std::endl;
         return -1;
