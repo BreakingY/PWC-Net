@@ -564,7 +564,7 @@ def backwarp(tenInput, tenFlow):
         return backwarp_v3(tenInput, tenFlow)
 
     else:
-        return backwarp_v1(tenInput, tenFlow)
+        raise RuntimeError(f'Unsupported backend: {args_strBackend}')
 
 ##########################################################
 
