@@ -5,21 +5,25 @@ TRT_VERSION ?= TRT_10
 
 
 ifeq ($(TRT_VERSION),TRT_10)
-    TRT_PATH := /data/sunkx/TensorRT-10.4.0.26
     TRT_DEFINE := -DTRT_10
 else ifeq ($(TRT_VERSION),TRT_84_85)
-    TRT_PATH := /data/sunkx/TensorRT-8.5.1.7
     TRT_DEFINE := -DTRT_84_85
 else
     $(error Unsupported TRT_VERSION=$(TRT_VERSION))
 endif
+
+# Check TensorRT path
+ifeq ($(TRT_PATH),)
+    $(error ERROR: Please specify TRT_PATH, e.g. make TRT_PATH=/usr/local/tensorrt)
+endif
+
 
 
 CXXFLAGS := -g -std=c++17 \
             $(TRT_DEFINE) \
             -I$(TRT_PATH)/include \
             -I/usr/local/cuda/include \
-            -I/usr/local/include/opencv4
+            -I/usr/local/opencvgpu/include/opencv4
 
 
 # ===============================
@@ -28,7 +32,8 @@ CXXFLAGS := -g -std=c++17 \
 
 LDFLAGS := -L$(TRT_PATH)/lib \
            -L/usr/local/cuda/lib64 \
-           -L/usr/local/lib
+           -L/usr/local/opencvgpu/lib \
+           -L./plugin/build/
 
 LDLIBS := -lnvinfer \
           -lcudart \
@@ -39,7 +44,8 @@ LDLIBS := -lnvinfer \
           -lopencv_videoio \
           -lnppig \
           -lnppidei \
-          -lnppial
+          -lnppial \
+          -Wl,--no-as-needed -lpwc_net_plugin -Wl,--as-needed
 
 TARGET := infer_trt
 

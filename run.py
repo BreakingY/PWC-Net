@@ -38,6 +38,10 @@ args_strOut = './out.flo'
 # trt84
 # cann 
 args_strBackend = 'trt104'
+# 是否使用 TensorRT Plugin
+args_plugin = 'false'
+USE_CORRELATION_PLUGIN = False
+USE_BACKWARP_PLUGIN = False
 
 for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
     'model=',
@@ -45,13 +49,20 @@ for strOption, strArg in getopt.getopt(sys.argv[1:], '', [
     'two=',
     'out=',
     'backend=',
+    'trt_plugin=',
 ])[0]:
     if strOption == '--model' and strArg != '': args_strModel = strArg # which model to use
     if strOption == '--one' and strArg != '': args_strOne = strArg # path to the first frame
     if strOption == '--two' and strArg != '': args_strTwo = strArg # path to the second frame
     if strOption == '--out' and strArg != '': args_strOut = strArg # path to where the output should be stored
     if strOption == '--backend' and strArg != '': args_strBackend = strArg
+    if strOption == '--trt_plugin' and strArg != '': args_plugin = strArg
+if args_plugin == 'true':
+    USE_CORRELATION_PLUGIN = True
+    USE_BACKWARP_PLUGIN = True
 VALID_BACKENDS = {'trt104', 'trt85', 'trt84', 'cann'}
+if args_plugin == 'true' and args_strBackend == 'cann':
+    raise ValueError('TensorRT Plugin is only supported by TensorRT backends')
 
 if args_strBackend not in VALID_BACKENDS:
     raise ValueError(
@@ -77,6 +88,9 @@ def print_backend_info():
     else:
         raise RuntimeError(f'Unsupported backend: {args_strBackend}')
 
+    if args_plugin == 'true':
+        correlation_version = 'mydomain::Correlation'
+        backwarp_version = 'mydomain::Backwarp'
     print('=' * 60)
     print('PWC-Net backend configuration')
     print('=' * 60)
@@ -273,20 +287,64 @@ def torch_correlation_v3(tenOne, tenTwo):
 
     return corr
 
+class CorrelationFunction(torch.autograd.Function):
 
-def torch_correlation(tenOne, tenTwo):
+    @staticmethod
+    def forward(ctx, tenOne, tenTwo):
+        return torch_correlation_native(tenOne, tenTwo)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return None, None
+
+    @staticmethod
+    def symbolic(g, tenOne, tenTwo):
+        return g.op('mydomain::Correlation', tenOne, tenTwo)
+    
+class BackwarpFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, tenInput, tenFlow):
+        return backwarp_native(tenInput, tenFlow)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return None, None
+
+    @staticmethod
+    def symbolic(g, tenInput, tenFlow):
+        return g.op('mydomain::Backwarp', tenInput, tenFlow)
+
+
+def backwarp_plugin(tenInput, tenFlow):
+    return BackwarpFunction.apply(tenInput, tenFlow)
+
+
+def correlation_plugin(tenOne, tenTwo):
+    return CorrelationFunction.apply(tenOne, tenTwo)
+
+
+def torch_correlation_native(tenOne, tenTwo):
 
     if args_strBackend in ('trt104', 'trt85'):
-        return torch_correlation_v1(tenOne,tenTwo)
+        return torch_correlation_v1(tenOne, tenTwo)
 
     elif args_strBackend == 'trt84':
-        return torch_correlation_v2(tenOne,tenTwo)
+        return torch_correlation_v2(tenOne, tenTwo)
 
     elif args_strBackend == 'cann':
-        return torch_correlation_v3(tenOne,tenTwo)
+        return torch_correlation_v3(tenOne, tenTwo)
 
     else:
         raise RuntimeError(f'Unsupported backend: {args_strBackend}')
+
+
+def torch_correlation(tenOne, tenTwo):
+
+    if USE_CORRELATION_PLUGIN:
+        return correlation_plugin(tenOne, tenTwo)
+
+    return torch_correlation_native(tenOne, tenTwo)
 ##########################################################
 """
 # v0:原项目代码
@@ -553,18 +611,27 @@ def backwarp_v3(tenInput, tenFlow):
     return output
 
 
-def backwarp(tenInput, tenFlow):
+def backwarp_native(tenInput, tenFlow):
+
     if args_strBackend in ('trt104', 'trt85'):
         return backwarp_v1(tenInput, tenFlow)
 
     elif args_strBackend == 'trt84':
         return backwarp_v2(tenInput, tenFlow)
-    
+
     elif args_strBackend == 'cann':
         return backwarp_v3(tenInput, tenFlow)
 
     else:
         raise RuntimeError(f'Unsupported backend: {args_strBackend}')
+
+
+def backwarp(tenInput, tenFlow):
+
+    if USE_BACKWARP_PLUGIN:
+        return backwarp_plugin(tenInput, tenFlow)
+
+    return backwarp_native(tenInput, tenFlow)
 
 ##########################################################
 
@@ -898,6 +965,9 @@ if __name__ == '__main__':
     numpy.array(tenOutput.numpy(force=True).transpose(1, 2, 0), numpy.float32).tofile(objOutput)
 
     objOutput.close()
-    onnx_path = f'./pwcnet_{args_strBackend}.onnx'
+    if args_plugin == 'false':
+        onnx_path = f'./pwcnet_{args_strBackend}.onnx'
+    else:
+        onnx_path = f'./pwcnet_{args_strBackend}_plugin.onnx'
     export_onnx(weight_path='./network-default.pytorch', onnx_path=onnx_path)
 # end

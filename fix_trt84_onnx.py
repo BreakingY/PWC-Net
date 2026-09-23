@@ -1,8 +1,11 @@
 import onnx
 
+import sys
+from pathlib import Path
 
-src_path = "pwcnet_trt84.onnx"
-dst_path = "pwcnet_trt84_fixed.onnx"
+src_path = sys.argv[1]
+p = Path(src_path)
+dst_path = p.with_stem(p.stem + "_fixed")
 
 model = onnx.load(src_path)
 
