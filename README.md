@@ -22,7 +22,7 @@
         * /data/sunkx/TensorRT-8.5.1.7/bin/trtexec --onnx=pwcnet_trt85_plugin.onnx --minShapes=input1:1x3x384x768,input2:1x3x384x768 --optShapes=input1:4x3x384x768,input2:4x3x384x768 --maxShapes=input1:4x3x384x768,input2:4x3x384x768 --plugins=./plugin/build/libpwc_net_plugin.so --saveEngine=pwcnet_trt85_plugin.engine --fp16
     - make -f Makefile_trt TRT_VERSION=<TRT_10;TRT_84_85> TRT_PATH=</data/sunkx/TensorRT-10.4.0.26;/data/sunkx/TensorRT-8.5.1.7;/usr>
     - export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$PWD/plugin/build/:/usr/local/opencvgpu/lib/
-    - ./infer_trt pwcnet.engine video/test.mp4 video && ./infer_trt pwcnet_trt104.engine images picture
+    - ./infer_trt <engine> video/test.mp4 video && ./infer_trt <engine> images picture
 - 晟腾CANN推理
     - 测试版本：8.2.RC1 8.5.0
     - atc --model=./pwcnet_cann.onnx --framework=5 --input_shape="input1:-1,3,384,768;input2:-1,3,384,768" --dynamic_batch_size="1,2,3,4" --insert_op_conf=./insert_op.cfg --output=pwcnet --soc_version=Ascend310P3 --precision_mode_v2=mixed_float16
