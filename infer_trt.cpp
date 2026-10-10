@@ -338,7 +338,7 @@ int VideoInfer(cudaStream_t &stream, std::vector<std::pair<int, std::string>> &i
 #if defined(TRT_84_85)
 // test version TensorRT-8.5.1.7 TensorRT-8.4.1.5
 int main(int argc, char **argv){
-    if(argc < 3){
+    if(argc < 4){
         std::cerr << "./bin eng_path video/test.mp4 or images video/picture" << std::endl;
         return 0;
     }
@@ -451,7 +451,7 @@ int main(int argc, char **argv){
 #elif defined(TRT_10)
 // test version TensorRT-10.4.0.26
 int main(int argc, char **argv){
-    if(argc < 3){
+    if(argc < 4){
         std::cerr << "./bin eng_path video/test.mp4 or images video/picture" << std::endl;
         return 0;
     }

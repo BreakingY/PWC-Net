@@ -340,7 +340,7 @@ int VideoInfer(aclrtStream stream, uint32_t model_id, hi_vpc_chn channel_id_resi
     return 0;
 }
 int main(int argc, char **argv){
-    if(argc < 3){
+    if(argc < 4){
         std::cerr << "./bin eng_path video/test.mp4 or images video/picture" << std::endl;
         return 0;
     }
@@ -452,7 +452,7 @@ int main(int argc, char **argv){
     output_dims.dims[3] > 0 ? input_w_flow = output_dims.dims[3]: input_w_flow = 768;
     std::cout << "input_h_flow: " << input_h_flow << " input_w_flow: " << input_w_flow << std::endl;
     assert(input_h == input_h_flow);
-    assert(input_w_flow == input_w_flow);
+    assert(input_w == input_w_flow);
 
     CHECK_DVPP_MPI(hi_mpi_dvpp_malloc(0, &input_addr_imgs[0], batch_size * input_h * input_w * 3));
     CHECK_DVPP_MPI(hi_mpi_dvpp_malloc(0, &input_addr_imgs[1], batch_size * input_h * input_w * 3));
