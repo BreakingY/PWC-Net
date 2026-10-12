@@ -908,7 +908,7 @@ class OnnxWrapper(torch.nn.Module):
         return flow
 
 
-def export_onnx(weight_path='./network-default.pytorch', onnx_path='./pwcnet.onnx', model_type='default', opset=17):
+def export_onnx(weight_path, onnx_path, opset=17):
     """
     Export PWC-style model to ONNX with dynamic batch support
     """
@@ -969,5 +969,5 @@ if __name__ == '__main__':
         onnx_path = f'./pwcnet_{args_strBackend}.onnx'
     else:
         onnx_path = f'./pwcnet_{args_strBackend}_plugin.onnx'
-    export_onnx(weight_path='./network-default.pytorch', onnx_path=onnx_path)
+    export_onnx(weight_path='./network-' + args_strModel + '.pytorch', onnx_path=onnx_path)
 # end
