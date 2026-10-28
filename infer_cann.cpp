@@ -590,6 +590,11 @@ int main(int argc, char **argv){
         std::cout << "must be picture or video" << std::endl;
 
     CHECK_ACL(aclmdlUnload(model_id));
+    for (size_t i = 0; i < aclmdlGetDatasetNumBuffers(input); ++i) {
+        aclDataBuffer* data_buffer = aclmdlGetDatasetBuffer(input, i);
+        CHECK_ACL(aclDestroyDataBuffer(data_buffer));
+        data_buffer = nullptr;
+    }
     for (size_t i = 0; i < aclmdlGetDatasetNumBuffers(output); ++i) {
         aclDataBuffer* data_buffer = aclmdlGetDatasetBuffer(output, i);
         void* data = aclGetDataBufferAddr(data_buffer);
@@ -597,6 +602,7 @@ int main(int argc, char **argv){
         CHECK_ACL(aclDestroyDataBuffer(data_buffer));
         data_buffer = nullptr;
     }
+    CHECK_ACL(aclmdlDestroyDataset(input));
     CHECK_ACL(aclmdlDestroyDataset(output));
     CHECK_DVPP_MPI(hi_mpi_dvpp_free(input_addr_imgs[0]));
     CHECK_DVPP_MPI(hi_mpi_dvpp_free(input_addr_imgs[1]));
@@ -606,5 +612,8 @@ int main(int argc, char **argv){
     CHECK_ACL(aclmdlDestroyDesc(model_desc));
     CHECK_DVPP_MPI(hi_mpi_vpc_destroy_chn(channel_id_resize));
     delete []output_flow;
+    CHECK_ACL(aclrtDestroyStream(stream));
+    CHECK_DVPP_MPI(hi_mpi_sys_exit());
+    CHECK_ACL(aclFinalize());
     return 0;
 }
