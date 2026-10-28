@@ -448,9 +448,10 @@ int main(int argc, char **argv){
     std::cout << "input_h: " << input_h << " input_w: " << input_w << std::endl;
 
     aclmdlIODims output_dims;
+    // 输出为NCHW(没有aipp)
     CHECK_ACL(aclmdlGetOutputDims(model_desc, 0, &output_dims));
-    output_dims.dims[1] > 0 ? input_h_flow = output_dims.dims[1]: input_h_flow = 384;
-    output_dims.dims[2] > 0 ? input_w_flow = output_dims.dims[2]: input_w_flow = 768;
+    output_dims.dims[2] > 0 ? input_h_flow = output_dims.dims[2]: input_h_flow = 384;
+    output_dims.dims[3] > 0 ? input_w_flow = output_dims.dims[3]: input_w_flow = 768;
     std::cout << "input_h_flow: " << input_h_flow << " input_w_flow: " << input_w_flow << std::endl;
     assert(input_h == input_h_flow);
     assert(input_w == input_w_flow);
