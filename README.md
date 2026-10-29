@@ -1,5 +1,5 @@
 # PWC-Net
-- 本项目基于 https://github.com/sniklaus/pytorch-pwc (PWC-Net 的 PyTorch 复现版本)进行开发，新增功能为 ONNX 模型导出、TensorRT(适配10.4、8.5、8.4)、CANN推理加速。
+- 本项目基于`https://github.com/sniklaus/pytorch-pwc`(PWC-Net 的 PyTorch 复现版本)进行开发，新增功能为 ONNX 模型导出、TensorRT(适配10.4、8.5、8.4)、CANN推理加速。
 # 功能
 - 去掉自定义算子，新增 ONNX 模型导出
     - python run.py --backend=<trt104;trt85;trt84;cann> --trt_plugin=<false;true>(使用TensorRT插件替换Correlation和Backwarp算子，实现加速)
